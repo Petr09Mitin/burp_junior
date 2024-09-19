@@ -1,8 +1,8 @@
 package rest_proxy
 
 import (
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/burp_junior/domain"
@@ -26,14 +26,14 @@ func NewProxyHandler(proxyService IProxyService) *ProxyHandler {
 func (h *ProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	pr, err := h.proxyService.ParseHTTPRequest(r)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	resp, err := h.proxyService.SendHTTPRequest(pr)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -52,7 +52,7 @@ func (h *ProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	// Copy the response body
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		http.Error(w, "Error copying response body", http.StatusInternalServerError)
 		return
 	}

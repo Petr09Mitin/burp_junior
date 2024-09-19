@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/burp_junior/domain"
@@ -50,31 +51,39 @@ func (p *ProxyService) ParseHTTPRequest(r *http.Request) (hr *domain.HTTPRequest
 	// Handle the case where ContentLength is not set
 	if r.ContentLength == -1 {
 		hr.Body, err = io.ReadAll(r.Body)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			err = fmt.Errorf("error reading request body: %v", err)
 			return
 		}
+
+		err = nil
 	} else {
 		hr.Body = make([]byte, r.ContentLength)
 		_, err = r.Body.Read(hr.Body)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			err = fmt.Errorf("error reading request body: %v", err)
 			return
 		}
+
+		err = nil
 	}
 
-	fmt.Println("Parsed request: ", hr)
+	log.Println("Parsed request: ", hr)
 
 	return
 }
 
 func (p *ProxyService) SendHTTPRequest(hr *domain.HTTPRequest) (resp *http.Response, err error) {
 	client := &http.Client{}
-	req, err := http.NewRequest(hr.Method, "http://"+hr.Host+":"+hr.Port+hr.Path, bytes.NewReader(hr.Body))
+	req, err := http.NewRequest(hr.Method, "", bytes.NewReader(hr.Body))
 	if err != nil {
 		err = fmt.Errorf("Error creating request: %v\n", err)
 		return
 	}
+
+	req.URL.Host = hr.Host + ":" + hr.Port
+	req.URL.Path = hr.Path
+	req.URL.Scheme = "http"
 
 	req.Proto = hr.Proto
 
