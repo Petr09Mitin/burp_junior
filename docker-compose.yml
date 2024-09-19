@@ -1,0 +1,10 @@
+version: '3.9'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./cmd/app/Dockerfile
+    image: burp_junior:latest
+    ports:
+      - 8080:8080
+    restart: always
