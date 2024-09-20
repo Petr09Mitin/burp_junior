@@ -2,6 +2,7 @@ package domain
 
 type HTTPRequest struct {
 	Proto   string
+	Scheme  string
 	Method  string
 	Host    string
 	Port    string

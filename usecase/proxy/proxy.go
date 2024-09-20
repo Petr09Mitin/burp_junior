@@ -28,6 +28,7 @@ func (p *ProxyService) ParseHTTPRequest(r *http.Request) (hr *domain.HTTPRequest
 		hr.Port = r.URL.Host[colonIndex+1:]
 	}
 
+	hr.Scheme = r.URL.Scheme
 	hr.Proto = r.Proto
 
 	// Parse path
@@ -83,7 +84,7 @@ func (p *ProxyService) SendHTTPRequest(hr *domain.HTTPRequest) (resp *http.Respo
 
 	req.URL.Host = hr.Host + ":" + hr.Port
 	req.URL.Path = hr.Path
-	req.URL.Scheme = "http"
+	req.URL.Scheme = hr.Scheme
 
 	req.Proto = hr.Proto
 
