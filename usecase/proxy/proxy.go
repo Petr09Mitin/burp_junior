@@ -36,7 +36,7 @@ func (p *ProxyService) ParseHTTPRequest(r *http.Request) (hr *domain.HTTPRequest
 
 	hr.Headers = make(map[string][]string)
 	for key, values := range r.Header {
-		if key == "hroxy-Connection" {
+		if key == "Proxy-Connection" {
 			continue
 		}
 
