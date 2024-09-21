@@ -2,30 +2,41 @@ package proxy
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/burp_junior/domain"
 )
 
-type ProxyService struct{}
+type ProxyService struct {
+	ca *tls.Certificate
+}
 
-func NewProxyService() *ProxyService {
-	return &ProxyService{}
+func NewProxyService() (p *ProxyService, err error) {
+	p = &ProxyService{}
+	p.ca, err = GetCA("ca.crt", "ca.key")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	return
 }
 
 func (p *ProxyService) ParseHTTPRequest(r *http.Request) (hr *domain.HTTPRequest, err error) {
 	hr = &domain.HTTPRequest{}
-	hr.Host = r.Host
-	hr.Port = "80" // Default port
-	if r.TLS != nil {
-		hr.Port = "443" // Default port for HTTPS
-	}
-	if colonIndex := len(hr.Host) - len(r.URL.Host); colonIndex > 0 {
-		hr.Host = r.URL.Host[:colonIndex]
-		hr.Port = r.URL.Host[colonIndex+1:]
+	hr.Method = r.Method
+
+	if colonIdx := strings.Index(r.Host, ":"); colonIdx == -1 {
+		hr.Host = r.Host
+		hr.Port = "80"
+	} else {
+		hr.Host = r.Host[:colonIdx]
+		hr.Port = r.Host[colonIdx+1:]
 	}
 
 	hr.Scheme = r.URL.Scheme
@@ -69,8 +80,6 @@ func (p *ProxyService) ParseHTTPRequest(r *http.Request) (hr *domain.HTTPRequest
 		err = nil
 	}
 
-	log.Println("Parsed request: ", hr)
-
 	return
 }
 
@@ -82,7 +91,7 @@ func (p *ProxyService) SendHTTPRequest(hr *domain.HTTPRequest) (resp *http.Respo
 		return
 	}
 
-	req.URL.Host = hr.Host + ":" + hr.Port
+	req.URL.Host = hr.GetFullHost()
 	req.URL.Path = hr.Path
 	req.URL.Scheme = hr.Scheme
 
@@ -97,6 +106,43 @@ func (p *ProxyService) SendHTTPRequest(hr *domain.HTTPRequest) (resp *http.Respo
 	resp, err = client.Do(req)
 	if err != nil {
 		err = fmt.Errorf("Error sending request: %v\n", err)
+		return
+	}
+
+	return
+}
+
+func (p *ProxyService) GetTLSConfig(pr *domain.HTTPRequest) (tlsCfg *tls.Config, sconn *tls.Conn, err error) {
+	provisionalCert, err := p.GetTLSCert(pr.Host)
+	if err != nil {
+		log.Println("cert", err)
+		return
+	}
+
+	tlsCfg = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	tlsCfg.Certificates = []tls.Certificate{*provisionalCert}
+
+	tlsCfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		cConfig.ServerName = hello.ServerName
+		sconn, err = tls.Dial("tcp", pr.GetFullHost(), cConfig)
+		if err != nil {
+			log.Println("dial", pr.GetFullHost(), err)
+			return nil, err
+		}
+		return p.GetTLSCert(hello.ServerName)
+	}
+
+	return
+}
+
+func (p *ProxyService) GetTLSCert(host string) (cert *tls.Certificate, err error) {
+	cert, err = SignTLSCert(host, p.ca)
+	if err != nil {
 		return
 	}
 

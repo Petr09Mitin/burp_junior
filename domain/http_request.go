@@ -10,3 +10,7 @@ type HTTPRequest struct {
 	Headers map[string][]string
 	Body    []byte
 }
+
+func (r *HTTPRequest) GetFullHost() string {
+	return r.Host + ":" + r.Port
+}

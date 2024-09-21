@@ -1,7 +1,10 @@
 package routers
 
 import (
+	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 
 	rest_api "github.com/burp_junior/internal/rest/api"
@@ -10,18 +13,56 @@ import (
 	"github.com/gorilla/mux"
 )
 
+func handleConnect(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling CONNECT method")
+
+	// Establish a TCP connection to the target server
+	destConn, err := net.Dial("tcp", r.Host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer destConn.Close()
+
+	// Send a 200 OK response to the client
+	w.WriteHeader(http.StatusOK)
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer clientConn.Close()
+
+	// Relay data between the client and the target server
+	go transfer(destConn, clientConn)
+	go transfer(clientConn, destConn)
+}
+
+func transfer(destination io.WriteCloser, source io.ReadCloser) {
+	defer destination.Close()
+	defer source.Close()
+	io.Copy(destination, source)
+}
+
 func MountProxyRouter() {
-	r := mux.NewRouter()
+	ps, err := proxy.NewProxyService()
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
-	proxyHandler := rest_proxy.NewProxyHandler(proxy.NewProxyService())
-
-	r.HandleFunc("/", proxyHandler.HandleProxy)
+	proxyHandler := rest_proxy.NewProxyHandler(ps)
 
 	proxyPort := ":8080"
 	log.Println("Proxy is running on port " + proxyPort)
-	err := http.ListenAndServe(proxyPort, r)
+	err = http.ListenAndServe(proxyPort, proxyHandler)
 	if err != nil {
-		log.Fatalln("Proxy failed to listen: ", err)
+		log.Println("Proxy failed to listen: ", err)
 	}
 }
 
@@ -32,9 +73,9 @@ func MountAPIRouter() {
 
 	APIPort := ":8000"
 
-	log.Println("Proxy is running on port " + APIPort)
+	log.Println("WebAPI is running on port " + APIPort)
 	err := http.ListenAndServe(APIPort, r)
 	if err != nil {
-		log.Fatalln("WebAPI failed to listen: ", err)
+		log.Println("WebAPI failed to listen: ", err)
 	}
 }

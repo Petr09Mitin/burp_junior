@@ -7,14 +7,18 @@ RUN apk update && apk add --no-cache git && apk add --no-cache bash && apk add b
 
 # Copy the source from the current directory to the Working Directory inside the container
 COPY . .
+COPY ca.crt /
+COPY ca.key /
 
-RUN CGO_ENABLED=0 go build -o /build/app ./cmd/app/main.go
+RUN CGO_ENABLED=0 go build -o /app ./cmd/app/main.go
 
 FROM gcr.io/distroless/base-debian11 AS build-release-stage
 
-COPY --from=build-stage /build/app /build/app
+COPY --from=build-stage /app /app
+COPY --from=build-stage ca.crt .
+COPY --from=build-stage ca.key .
 
-EXPOSE 8080 8080
+EXPOSE 8000 8080
 
 # Run the executable
-CMD ["/build/app"]
+CMD ["/app"]
