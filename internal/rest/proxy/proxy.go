@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/burp_junior/domain"
 )
@@ -85,7 +86,7 @@ func (h *ProxyHandler) ServeHTTPResponse(w http.ResponseWriter, resp *http.Respo
 
 func (h *ProxyHandler) serveConnect(w http.ResponseWriter, pr *domain.HTTPRequest) (err error) {
 	// established connect tunnel
-	w.Write([]byte(okHeader))
+	//w.Write([]byte(okHeader))
 
 	tlsConf, sconn, err := h.proxyService.GetTLSConfig(pr)
 	if err != nil {
@@ -100,10 +101,7 @@ func (h *ProxyHandler) serveConnect(w http.ResponseWriter, pr *domain.HTTPReques
 	defer cconn.Close()
 
 	if sconn == nil {
-		cConfig := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-		sconn, err = tls.Dial("tcp", pr.GetFullHost(), cConfig)
+		sconn, err = tls.Dial("tcp", pr.GetFullHost(), tlsConf)
 		if err != nil {
 			log.Println("dial", pr.GetFullHost(), err)
 			return
@@ -111,57 +109,36 @@ func (h *ProxyHandler) serveConnect(w http.ResponseWriter, pr *domain.HTTPReques
 	}
 	defer sconn.Close()
 
-	done := make(chan struct{})
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
 
-	go func() {
-		io.Copy(cconn, sconn)
+	go transfer(sconn, cconn, wg)
+	go transfer(cconn, sconn, wg)
 
-		log.Println("client --> proxy --> server")
-		data := make([]byte, 1024)
-		for {
-			log.Println("client --> proxy")
-			n, err := cconn.Read(data)
-			if err != nil {
-				log.Printf("cconn -> sconn write error: %v\n", err)
-				done <- struct{}{}
-			}
-			log.Println("proxy --> server")
-			sconn.Write(data[:n])
-		}
-	}()
-
-	go func() {
-		io.Copy(sconn, cconn)
-
-		log.Println("server --> proxy --> client")
-		data := make([]byte, 1024)
-		for {
-			log.Println("server --> proxy")
-			for {
-				n, err := sconn.Read(data)
-				if err != nil {
-					log.Printf("%v\n", err)
-					done <- struct{}{}
-				}
-				log.Println("proxy --> client")
-				cconn.Write(data[:n])
-				if n < 1024 {
-					break
-				}
-			}
-		}
-	}()
-
-	<-done
-	log.Println("Tunnel with " + pr.GetFullHost() + " closed")
+	wg.Wait()
 
 	return
 }
 
-func transfer(destination io.WriteCloser, source io.ReadCloser) {
-	defer destination.Close()
-	defer source.Close()
-	io.Copy(destination, source)
+func transfer(reader io.Reader, writer io.Writer, wg *sync.WaitGroup) {
+	defer wg.Done()
+	buf := make([]byte, 10*1024)
+	for {
+		n, err := reader.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				log.Println("Error reading from connection:", err)
+			}
+			return
+		}
+		if n > 0 {
+			_, err = writer.Write(buf[:n])
+			if err != nil {
+				log.Println("Error writing to connection:", err)
+				return
+			}
+		}
+	}
 }
 
 func handshake(w http.ResponseWriter, config *tls.Config) (net.Conn, error) {
@@ -170,6 +147,12 @@ func handshake(w http.ResponseWriter, config *tls.Config) (net.Conn, error) {
 		http.Error(w, "no upstream", 503)
 		return nil, err
 	}
+
+	if _, err = raw.Write(okHeader); err != nil {
+		raw.Close()
+		return nil, err
+	}
+
 	conn := tls.Server(raw, config)
 	err = conn.Handshake()
 	if err != nil {

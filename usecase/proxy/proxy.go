@@ -115,7 +115,6 @@ func (p *ProxyService) SendHTTPRequest(hr *domain.HTTPRequest) (resp *http.Respo
 func (p *ProxyService) GetTLSConfig(pr *domain.HTTPRequest) (tlsCfg *tls.Config, sconn *tls.Conn, err error) {
 	provisionalCert, err := p.GetTLSCert(pr.Host)
 	if err != nil {
-		log.Println("cert", err)
 		return
 	}
 
@@ -131,7 +130,6 @@ func (p *ProxyService) GetTLSConfig(pr *domain.HTTPRequest) (tlsCfg *tls.Config,
 		cConfig.ServerName = hello.ServerName
 		sconn, err = tls.Dial("tcp", pr.GetFullHost(), cConfig)
 		if err != nil {
-			log.Println("dial", pr.GetFullHost(), err)
 			return nil, err
 		}
 		return p.GetTLSCert(hello.ServerName)
