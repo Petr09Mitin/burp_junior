@@ -7,11 +7,12 @@ import (
 	rest_api "github.com/burp_junior/internal/rest/api"
 	rest_proxy "github.com/burp_junior/internal/rest/proxy"
 	"github.com/burp_junior/usecase/proxy"
+	"github.com/burp_junior/usecase/request"
 	"github.com/gorilla/mux"
 )
 
-func MountProxyRouter() {
-	ps, err := proxy.NewProxyService()
+func MountProxyRouter(rs proxy.RequestsStorage) {
+	ps, err := proxy.NewProxyService(rs)
 	if err != nil {
 		log.Println(err)
 		return
@@ -27,7 +28,7 @@ func MountProxyRouter() {
 	}
 }
 
-func MountAPIRouter() {
+func MountAPIRouter(rs request.RequestsStorage) {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/requests", rest_api.APIHandler)

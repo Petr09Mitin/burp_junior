@@ -14,10 +14,15 @@ import (
 
 type ProxyService struct {
 	ca *tls.Certificate
+	rs RequestsStorage
 }
 
-func NewProxyService() (p *ProxyService, err error) {
-	p = &ProxyService{}
+type RequestsStorage interface{}
+
+func NewProxyService(rs RequestsStorage) (p *ProxyService, err error) {
+	p = &ProxyService{
+		rs: rs,
+	}
 	p.ca, err = GetCA("ca.crt", "ca.key")
 	if err != nil {
 		log.Println(err)

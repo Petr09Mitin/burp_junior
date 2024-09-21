@@ -9,6 +9,7 @@ RUN apk update && apk add --no-cache git && apk add --no-cache bash && apk add b
 COPY . .
 COPY ca.crt /
 COPY ca.key /
+COPY .env /
 
 RUN CGO_ENABLED=0 go build -o /app ./cmd/app/main.go
 
@@ -17,6 +18,7 @@ FROM gcr.io/distroless/base-debian11 AS build-release-stage
 COPY --from=build-stage /app /app
 COPY --from=build-stage ca.crt .
 COPY --from=build-stage ca.key .
+COPY --from=build-stage .env .
 
 EXPOSE 8000 8080
 
