@@ -2,5 +2,4 @@ main
 main.exe
 *.crt
 *.key
-certs
 .env

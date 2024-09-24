@@ -1,6 +1,7 @@
 package rest_proxy
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
 	"log"
@@ -13,24 +14,30 @@ import (
 
 var okHeader = []byte("HTTP/1.1 200 Connection Established\r\n\r\n")
 
-type IProxyService interface {
-	ParseHTTPRequest(r *http.Request) (pr *domain.HTTPRequest, err error)
-	SendHTTPRequest(pr *domain.HTTPRequest) (resp *http.Response, err error)
-	GetTLSConfig(pr *domain.HTTPRequest) (cfg *tls.Config, sconn *tls.Conn, err error)
+type ProxyService interface {
+	ParseHTTPRequest(ctx context.Context, r *http.Request) (pr *domain.HTTPRequest, err error)
+	SendHTTPRequest(ctx context.Context, pr *domain.HTTPRequest) (resp *http.Response, err error)
+	GetTLSConfig(ctx context.Context, pr *domain.HTTPRequest) (cfg *tls.Config, sconn *tls.Conn, err error)
 }
 
 type ProxyHandler struct {
-	proxyService IProxyService
+	proxyService ProxyService
 }
 
-func NewProxyHandler(proxyService IProxyService) *ProxyHandler {
+func NewProxyHandler(proxyService ProxyService) *ProxyHandler {
 	return &ProxyHandler{
 		proxyService: proxyService,
 	}
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	pr, err := h.proxyService.ParseHTTPRequest(r)
+	err := r.ParseForm()
+	if err != nil {
+		log.Println("err parsing form data: ", err)
+		return
+	}
+
+	pr, err := h.proxyService.ParseHTTPRequest(r.Context(), r)
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -38,7 +45,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if pr.Method == http.MethodConnect {
-		err = h.serveConnect(w, pr)
+		err = h.serveConnect(w, r, pr)
 		if err != nil {
 			log.Println("connect err:", err)
 			return
@@ -47,7 +54,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.proxyService.SendHTTPRequest(pr)
+	resp, err := h.proxyService.SendHTTPRequest(r.Context(), pr)
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -84,11 +91,8 @@ func (h *ProxyHandler) ServeHTTPResponse(w http.ResponseWriter, resp *http.Respo
 	return
 }
 
-func (h *ProxyHandler) serveConnect(w http.ResponseWriter, pr *domain.HTTPRequest) (err error) {
-	// established connect tunnel
-	//w.Write([]byte(okHeader))
-
-	tlsConf, sconn, err := h.proxyService.GetTLSConfig(pr)
+func (h *ProxyHandler) serveConnect(w http.ResponseWriter, r *http.Request, pr *domain.HTTPRequest) (err error) {
+	tlsConf, sconn, err := h.proxyService.GetTLSConfig(r.Context(), pr)
 	if err != nil {
 		return
 	}
@@ -122,7 +126,7 @@ func (h *ProxyHandler) serveConnect(w http.ResponseWriter, pr *domain.HTTPReques
 
 func transfer(reader io.Reader, writer io.Writer, wg *sync.WaitGroup) {
 	defer wg.Done()
-	buf := make([]byte, 10*1024)
+	buf := make([]byte, 100*1024)
 	for {
 		n, err := reader.Read(buf)
 		if err != nil {

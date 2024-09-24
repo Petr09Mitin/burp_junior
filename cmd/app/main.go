@@ -7,7 +7,9 @@ import (
 	"os"
 	"time"
 
+	mongo_repo "github.com/burp_junior/internal/repository/mongo"
 	"github.com/burp_junior/internal/rest/routers"
+	"github.com/burp_junior/usecase/request"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -45,11 +47,18 @@ func mountRouters() {
 
 	collection := client.Database("burp_junior").Collection("request")
 
+	repo := mongo_repo.NewRequestsRepo(collection)
+	rs, err := request.NewRequestService(repo)
+	if err != nil {
+		log.Println("err creating request service: ", err)
+		return
+	}
+
 	go func() {
-		routers.MountProxyRouter(collection)
+		routers.MountProxyRouter(rs)
 	}()
 
-	routers.MountAPIRouter(collection)
+	routers.MountAPIRouter(rs)
 }
 
 func main() {

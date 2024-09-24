@@ -10,6 +10,7 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
     volumes:
       - mongo-data:/data/db
+    command: --quiet
     restart: always
 
   app:
@@ -19,6 +20,7 @@ services:
     image: burp_junior:latest
     ports:
       - 8080:8080
+      - 8000:8000
     restart: always
     depends_on:
       - mongo

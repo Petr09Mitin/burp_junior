@@ -6,32 +6,29 @@ import (
 
 	rest_api "github.com/burp_junior/internal/rest/api"
 	rest_proxy "github.com/burp_junior/internal/rest/proxy"
-	"github.com/burp_junior/usecase/proxy"
-	"github.com/burp_junior/usecase/request"
 	"github.com/gorilla/mux"
 )
 
-func MountProxyRouter(rs proxy.RequestsStorage) {
-	ps, err := proxy.NewProxyService(rs)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	proxyHandler := rest_proxy.NewProxyHandler(ps)
+func MountProxyRouter(rs rest_proxy.ProxyService) {
+	proxyHandler := rest_proxy.NewProxyHandler(rs)
 
 	proxyPort := ":8080"
 	log.Println("Proxy is running on port " + proxyPort)
-	err = http.ListenAndServe(proxyPort, proxyHandler)
+	err := http.ListenAndServe(proxyPort, proxyHandler)
 	if err != nil {
 		log.Println("Proxy failed to listen: ", err)
 	}
 }
 
-func MountAPIRouter(rs request.RequestsStorage) {
+func MountAPIRouter(rs rest_api.RequestService) {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/requests", rest_api.APIHandler)
+	h := rest_api.NewAPIHandler(rs)
+
+	r.HandleFunc("/requests/", h.GetRequestsListHandler).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/requests/{id}", h.GetSingleRequestHandler).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/requests/{id}/repeat", h.RepeatRequestHandler).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/requests/{id}/scan", h.ScanRequestHandler).Methods(http.MethodPost, http.MethodOptions)
 
 	APIPort := ":8000"
 
