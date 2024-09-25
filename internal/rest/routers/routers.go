@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func MountProxyRouter(rs rest_proxy.ProxyService) {
+func MountProxyRouter(rs rest_proxy.RequestService) {
 	proxyHandler := rest_proxy.NewProxyHandler(rs)
 
 	proxyPort := ":8080"
@@ -17,7 +17,10 @@ func MountProxyRouter(rs rest_proxy.ProxyService) {
 	err := http.ListenAndServe(proxyPort, proxyHandler)
 	if err != nil {
 		log.Println("Proxy failed to listen: ", err)
+		return
 	}
+
+	return
 }
 
 func MountAPIRouter(rs rest_api.RequestService) {
@@ -36,5 +39,8 @@ func MountAPIRouter(rs rest_api.RequestService) {
 	err := http.ListenAndServe(APIPort, r)
 	if err != nil {
 		log.Println("WebAPI failed to listen: ", err)
+		return
 	}
+
+	return
 }

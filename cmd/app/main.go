@@ -45,10 +45,13 @@ func mountRouters() {
 		return
 	}
 
-	collection := client.Database("burp_junior").Collection("request")
+	reqColl := client.Database("burp_junior").Collection("request")
+	resColl := client.Database("burp_junior").Collection("response")
 
-	repo := mongo_repo.NewRequestsRepo(collection)
-	rs, err := request.NewRequestService(repo)
+	reqRepo := mongo_repo.NewRequestsRepo(reqColl)
+	resRepo := mongo_repo.NewResponsesRepo(resColl)
+
+	rs, err := request.NewRequestService(reqRepo, resRepo)
 	if err != nil {
 		log.Println("err creating request service: ", err)
 		return

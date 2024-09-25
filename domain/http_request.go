@@ -2,7 +2,6 @@ package domain
 
 type HTTPRequest struct {
 	ID         string              `bson:"_id,omitempty"`
-	ResponseID string              `bson:"response_id,omitempty"`
 	Proto      string              `bson:"proto,omitempty"`
 	Scheme     string              `bson:"scheme,omitempty"`
 	Method     string              `bson:"method,omitempty"`

@@ -18,14 +18,14 @@ func NewRequestsRepo(col *mongo.Collection) (r *Requests) {
 	}
 }
 
-func (r *Requests) SaveRequest(ctx context.Context, req *domain.HTTPRequest) (insertedReq *domain.HTTPRequest, err error) {
+func (r *Requests) SaveRequest(ctx context.Context, req *domain.HTTPRequest) (savedReq *domain.HTTPRequest, err error) {
 	result, err := r.Col.InsertOne(context.Background(), req)
 	if err != nil {
 		return
 	}
 
 	req.ID = result.InsertedID.(primitive.ObjectID).Hex()
-	insertedReq = req
+	savedReq = req
 
 	return
 }
@@ -51,7 +51,7 @@ func (r *Requests) GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequ
 	return
 }
 
-func (r *Requests) GetRequestByID(id string) (ctx context.Context, req *domain.HTTPRequest, err error) {
+func (r *Requests) GetRequestByID(ctx context.Context, id string) (req *domain.HTTPRequest, err error) {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return

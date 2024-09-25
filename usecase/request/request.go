@@ -15,8 +15,9 @@ import (
 )
 
 type RequestService struct {
-	ca *tls.Certificate
-	rs RequestsStorage
+	ca   *tls.Certificate
+	reqS RequestsStorage
+	resS ResponseStorage
 }
 
 type RequestsStorage interface {
@@ -24,9 +25,14 @@ type RequestsStorage interface {
 	GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error)
 }
 
-func NewRequestService(rs RequestsStorage) (p *RequestService, err error) {
+type ResponseStorage interface {
+	SaveResponse(ctx context.Context, resp *domain.HTTPResponse) (savedResp *domain.HTTPResponse, err error)
+}
+
+func NewRequestService(reqS RequestsStorage, resS ResponseStorage) (p *RequestService, err error) {
 	p = &RequestService{
-		rs: rs,
+		reqS: reqS,
+		resS: resS,
 	}
 	p.ca, err = certs.GetCA("ca.crt", "ca.key")
 	if err != nil {
@@ -196,7 +202,7 @@ func (p *RequestService) GetTLSCert(ctx context.Context, host string) (cert *tls
 }
 
 func (p *RequestService) SaveRequest(ctx context.Context, r *domain.HTTPRequest) (newReq *domain.HTTPRequest, err error) {
-	newReq, err = p.rs.SaveRequest(ctx, r)
+	newReq, err = p.reqS.SaveRequest(ctx, r)
 	if err != nil {
 		log.Println("error saving request: ", err)
 		return
@@ -206,11 +212,39 @@ func (p *RequestService) SaveRequest(ctx context.Context, r *domain.HTTPRequest)
 }
 
 func (p *RequestService) GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error) {
-	reqs, err = p.rs.GetRequestsList(ctx)
+	reqs, err = p.reqS.GetRequestsList(ctx)
 	if err != nil {
 		log.Println("error getting requests list: ", err)
 		return
 	}
 
 	return
+}
+
+func (r *RequestService) ParseHTTPResponse(ctx context.Context, resp *http.Response) (*domain.HTTPResponse, error) {
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Create the HTTPResponse struct
+	httpResponse := &domain.HTTPResponse{
+		Code:    resp.StatusCode,
+		Message: resp.Status,
+		Headers: make(map[string][]string),
+		Body:    body,
+	}
+
+	// Copy headers
+	for key, values := range resp.Header {
+		httpResponse.Headers[key] = values
+	}
+
+	return httpResponse, nil
+}
+
+func (r *RequestService) SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse) (savedResp *domain.HTTPResponse, err error) {
+	return resp, nil
 }
