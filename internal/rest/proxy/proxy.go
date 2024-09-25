@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -76,12 +77,16 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	parsedResp.RequestID = pr.ID
+
 	savedResp, err := h.requestService.SaveHTTPResponse(r.Context(), parsedResp)
 	if err != nil {
 		log.Println(err)
 		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrSavingResponse)
 		return
 	}
+
+	fmt.Println(savedResp.Code, savedResp.Headers, savedResp.ID, savedResp.Message, savedResp.RequestID)
 
 	err = h.ServeHTTPResponse(w, savedResp)
 	if err != nil {

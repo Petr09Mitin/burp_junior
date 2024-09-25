@@ -246,5 +246,10 @@ func (r *RequestService) ParseHTTPResponse(ctx context.Context, resp *http.Respo
 }
 
 func (r *RequestService) SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse) (savedResp *domain.HTTPResponse, err error) {
-	return resp, nil
+	savedResp, err = r.resS.SaveResponse(ctx, resp)
+	if err != nil {
+		return
+	}
+
+	return
 }
