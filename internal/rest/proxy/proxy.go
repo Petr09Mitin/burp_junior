@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -85,8 +84,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrSavingResponse)
 		return
 	}
-
-	fmt.Println(savedResp.Code, savedResp.Headers, savedResp.ID, savedResp.Message, savedResp.RequestID)
 
 	err = h.ServeHTTPResponse(w, savedResp)
 	if err != nil {
