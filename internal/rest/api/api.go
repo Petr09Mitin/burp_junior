@@ -5,8 +5,10 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/burp_junior/customerrors"
 	"github.com/burp_junior/domain"
 	"github.com/burp_junior/pkg/jsonutils"
+	"github.com/gorilla/mux"
 )
 
 type APIHandler struct {
@@ -15,6 +17,7 @@ type APIHandler struct {
 
 type RequestService interface {
 	GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error)
+	GetRequestByID(ctx context.Context, reqID string) (req *domain.HTTPRequest, err error)
 }
 
 func NewAPIHandler(rs RequestService) *APIHandler {
@@ -35,8 +38,21 @@ func (h *APIHandler) GetRequestsListHandler(w http.ResponseWriter, r *http.Reque
 	return
 }
 
-func (h *APIHandler) GetSingleRequestHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+func (h *APIHandler) GetRequestByIDHandler(w http.ResponseWriter, r *http.Request) {
+	reqID, ok := mux.Vars(r)["id"]
+	if !ok {
+		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrInvalidRequest)
+		return
+	}
+
+	req, err := h.rs.GetRequestByID(r.Context(), reqID)
+	if err != nil {
+		jsonutils.ServeJSONError(r.Context(), w, err)
+		return
+	}
+
+	jsonutils.ServeJSONBody(r.Context(), w, req, http.StatusOK)
+
 	return
 }
 

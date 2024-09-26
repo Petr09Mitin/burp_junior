@@ -22,8 +22,13 @@ services:
       - 8080:8080
       - 8000:8000
     restart: always
+    volumes:
+      - gomodcache:/go/pkg/mod
+      - gocache:/go-cache
     depends_on:
       - mongo
 
 volumes:
   mongo-data:
+  gomodcache:
+  gocache:

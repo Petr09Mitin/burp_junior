@@ -28,6 +28,7 @@ var (
 	ErrParsingResponseMessage = "error parsing response"
 	ErrServingResponseMessage = "error serving response"
 	ErrSavingResponseMessage  = "error saving response"
+	ErrInvalidRequestMessage  = "invalid request"
 )
 
 var (
@@ -40,4 +41,5 @@ var (
 	ErrParsingResponse = NewCustomError(errors.New(ErrParsingResponseMessage))
 	ErrServingResponse = NewCustomError(errors.New(ErrServingResponseMessage))
 	ErrSavingResponse  = NewCustomError(errors.New(ErrSavingResponseMessage))
+	ErrInvalidRequest  = NewCustomError(errors.New(ErrInvalidRequestMessage))
 )

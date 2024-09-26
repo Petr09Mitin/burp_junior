@@ -5,11 +5,16 @@ FROM golang:1.23.1-alpine3.19 AS build-stage
 # Git is required for fetching the dependencies.
 RUN apk update && apk add --no-cache git && apk add --no-cache bash && apk add build-base
 
+ENV GOMODCACHE /go/pkg/mod
+ENV GOCACHE /go-cache
+
 # Copy the source from the current directory to the Working Directory inside the container
 COPY . .
 COPY ca.crt /
 COPY ca.key /
 COPY .env /
+
+RUN go mod download
 
 RUN CGO_ENABLED=0 go build -o /app ./cmd/app/main.go
 

@@ -1,5 +1,5 @@
 run:
-	docker-compose build && docker-compose up
+	sudo docker-compose up --build
 
 gen-ca:
 	./utils/gen_ca.sh

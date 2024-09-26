@@ -29,7 +29,7 @@ func MountAPIRouter(rs rest_api.RequestService) {
 	h := rest_api.NewAPIHandler(rs)
 
 	r.HandleFunc("/requests/", h.GetRequestsListHandler).Methods(http.MethodGet, http.MethodOptions)
-	r.HandleFunc("/requests/{id}", h.GetSingleRequestHandler).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/requests/{id}", h.GetRequestByIDHandler).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/requests/{id}/repeat", h.RepeatRequestHandler).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/requests/{id}/scan", h.ScanRequestHandler).Methods(http.MethodPost, http.MethodOptions)
 

@@ -23,6 +23,7 @@ type RequestService struct {
 type RequestsStorage interface {
 	SaveRequest(ctx context.Context, r *domain.HTTPRequest) (insertedReq *domain.HTTPRequest, err error)
 	GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error)
+	GetRequestByID(ctx context.Context, id string) (req *domain.HTTPRequest, err error)
 }
 
 type ResponseStorage interface {
@@ -247,6 +248,15 @@ func (r *RequestService) ParseHTTPResponse(ctx context.Context, resp *http.Respo
 
 func (r *RequestService) SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse) (savedResp *domain.HTTPResponse, err error) {
 	savedResp, err = r.resS.SaveResponse(ctx, resp)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func (r *RequestService) GetRequestByID(ctx context.Context, reqID string) (req *domain.HTTPRequest, err error) {
+	req, err = r.reqS.GetRequestByID(ctx, reqID)
 	if err != nil {
 		return
 	}
