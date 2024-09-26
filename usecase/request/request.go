@@ -1,6 +1,7 @@
 package request
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/burp_junior/domain"
 	"github.com/burp_junior/pkg/certs"
@@ -42,6 +44,27 @@ func NewRequestService(reqS RequestsStorage, resS ResponseStorage) (p *RequestSe
 	}
 
 	return
+}
+
+func (p *RequestService) parseCookie(cookieStr string) (*http.Cookie, error) {
+	// Create a dummy HTTP response string with the cookie
+	responseStr := "HTTP/1.1 200 OK\r\n" +
+		"Set-Cookie: " + cookieStr + "\r\n" +
+		"\r\n"
+
+	// Read the response using http.ReadResponse
+	reader := bufio.NewReader(strings.NewReader(responseStr))
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the cookie from the response
+	if len(resp.Cookies()) > 0 {
+		return resp.Cookies()[0], nil
+	}
+
+	return nil, fmt.Errorf("no cookie found")
 }
 
 func (p *RequestService) parseHTTPBody(r *http.Request) (body []byte, err error) {
@@ -246,7 +269,9 @@ func (r *RequestService) ParseHTTPResponse(ctx context.Context, resp *http.Respo
 	return httpResponse, nil
 }
 
-func (r *RequestService) SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse) (savedResp *domain.HTTPResponse, err error) {
+func (r *RequestService) SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse, req *domain.HTTPRequest) (savedResp *domain.HTTPResponse, err error) {
+	resp.RequestID = req.ID
+
 	savedResp, err = r.resS.SaveResponse(ctx, resp)
 	if err != nil {
 		return
@@ -257,6 +282,75 @@ func (r *RequestService) SaveHTTPResponse(ctx context.Context, resp *domain.HTTP
 
 func (r *RequestService) GetRequestByID(ctx context.Context, reqID string) (req *domain.HTTPRequest, err error) {
 	req, err = r.reqS.GetRequestByID(ctx, reqID)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func (r *RequestService) RepeatRequestByID(ctx context.Context, reqID string) (res *domain.HTTPResponse, err error) {
+	req, err := r.GetRequestByID(ctx, reqID)
+	if err != nil {
+		return
+	}
+
+	var tlsCfg *tls.Config
+
+	if req.Scheme == "https" {
+		tlsCfg, _, err = r.GetTLSConfig(ctx, req)
+	}
+
+	tr := &http.Transport{
+		MaxIdleConns:    10,
+		IdleConnTimeout: 30 * time.Second,
+		TLSClientConfig: tlsCfg,
+	}
+	client := &http.Client{Transport: tr}
+
+	httpReq, err := http.NewRequest(req.Method, req.Scheme+"://"+req.GetFullHost()+req.Path, bytes.NewReader(req.Body))
+	if err != nil {
+		return
+	}
+
+	for key, values := range req.Headers {
+		for _, value := range values {
+			httpReq.Header.Add(key, value)
+		}
+	}
+
+	for key, values := range req.GetParams {
+		for _, value := range values {
+			httpReq.URL.Query().Add(key, value)
+		}
+	}
+
+	for key, values := range req.PostParams {
+		for _, value := range values {
+			httpReq.PostForm.Add(key, value)
+		}
+	}
+
+	for _, value := range req.Cookies {
+		cookie, err := r.parseCookie(value)
+		if err != nil {
+			return nil, err
+		}
+
+		httpReq.AddCookie(cookie)
+	}
+
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return
+	}
+
+	res, err = r.ParseHTTPResponse(ctx, httpResp)
+	if err != nil {
+		return
+	}
+
+	res, err = r.SaveHTTPResponse(ctx, res, req)
 	if err != nil {
 		return
 	}

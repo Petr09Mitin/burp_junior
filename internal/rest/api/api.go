@@ -18,6 +18,7 @@ type APIHandler struct {
 type RequestService interface {
 	GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error)
 	GetRequestByID(ctx context.Context, reqID string) (req *domain.HTTPRequest, err error)
+	RepeatRequestByID(ctx context.Context, reqID string) (res *domain.HTTPResponse, err error)
 }
 
 func NewAPIHandler(rs RequestService) *APIHandler {
@@ -57,7 +58,20 @@ func (h *APIHandler) GetRequestByIDHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *APIHandler) RepeatRequestHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+	reqID, ok := mux.Vars(r)["id"]
+	if !ok {
+		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrInvalidRequest)
+		return
+	}
+
+	res, err := h.rs.RepeatRequestByID(r.Context(), reqID)
+	if err != nil {
+		jsonutils.ServeJSONError(r.Context(), w, err)
+		return
+	}
+
+	jsonutils.ServeJSONBody(r.Context(), w, res, http.StatusOK)
+
 	return
 }
 

@@ -22,7 +22,7 @@ type RequestService interface {
 	SendHTTPRequest(ctx context.Context, pr *domain.HTTPRequest) (resp *http.Response, err error)
 	GetTLSConfig(ctx context.Context, pr *domain.HTTPRequest) (cfg *tls.Config, sconn *tls.Conn, err error)
 	ParseHTTPResponse(ctx context.Context, resp *http.Response) (*domain.HTTPResponse, error)
-	SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse) (savedResp *domain.HTTPResponse, err error)
+	SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse, req *domain.HTTPRequest) (savedResp *domain.HTTPResponse, err error)
 }
 
 type ProxyHandler struct {
@@ -76,9 +76,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsedResp.RequestID = pr.ID
-
-	savedResp, err := h.requestService.SaveHTTPResponse(r.Context(), parsedResp)
+	savedResp, err := h.requestService.SaveHTTPResponse(r.Context(), parsedResp, pr)
 	if err != nil {
 		log.Println(err)
 		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrSavingResponse)
