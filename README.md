@@ -16,5 +16,5 @@
   <li>/requests – список запросов</li>
   <li>/requests/{id} – вывод 1 запроса</li>
   <li>/requests/{id}/repeat – повторная отправка запроса</li>
-  <li>/requests/{id}/scan – сканирование запроса (command injection)</li>
+  <li>/requests/{id}/scan – сканирование запроса (command injection). Возвращает только те поля запроса, которые оказались уязвимы для инъекции. https://portswigger.net/web-security/os-command-injection/lab-simple лаба для тестирования скана.</li>
 </ol>
