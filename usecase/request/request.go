@@ -3,12 +3,15 @@ package request
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -72,7 +75,7 @@ func (p *RequestService) parseCookie(cookieStr string) (*http.Cookie, error) {
 		return resp.Cookies()[0], nil
 	}
 
-	return nil, fmt.Errorf("no cookie found")
+	return nil, errors.New("no cookies found")
 }
 
 func (p *RequestService) parseHTTPBody(r *http.Request) (body []byte, err error) {
@@ -86,7 +89,6 @@ func (p *RequestService) parseHTTPBody(r *http.Request) (body []byte, err error)
 	if r.ContentLength == -1 {
 		body, err = io.ReadAll(r.Body)
 		if err != nil && err != io.EOF {
-			err = fmt.Errorf("error reading request body: %v", err)
 			return
 		}
 
@@ -95,7 +97,6 @@ func (p *RequestService) parseHTTPBody(r *http.Request) (body []byte, err error)
 		body = make([]byte, r.ContentLength)
 		_, err = r.Body.Read(body)
 		if err != nil && err != io.EOF {
-			err = fmt.Errorf("error reading request body: %v", err)
 			return
 		}
 
@@ -120,6 +121,14 @@ func (p *RequestService) parseHTTPHeaders(r *http.Request) (headers map[string][
 
 func (p *RequestService) ParseHTTPRequest(ctx context.Context, r *http.Request) (hr *domain.HTTPRequest, err error) {
 	hr = &domain.HTTPRequest{}
+
+	err = r.ParseForm()
+	if err != nil {
+		log.Println("error parsing form data: ", err)
+		return
+	}
+	hr.PostParams = r.PostForm
+
 	hr.Method = r.Method
 
 	if colonIdx := strings.Index(r.Host, ":"); colonIdx == -1 {
@@ -131,6 +140,13 @@ func (p *RequestService) ParseHTTPRequest(ctx context.Context, r *http.Request) 
 	}
 
 	hr.Scheme = r.URL.Scheme
+	if hr.Scheme == "" {
+		hr.Scheme = "http"
+		if r.TLS != nil || hr.Port == "443" {
+			hr.Scheme = "https"
+		}
+	}
+
 	hr.Proto = r.Proto
 
 	// Parse path
@@ -150,8 +166,6 @@ func (p *RequestService) ParseHTTPRequest(ctx context.Context, r *http.Request) 
 
 	hr.GetParams = r.URL.Query()
 
-	hr.PostParams = r.PostForm
-
 	hr.Cookies = make(map[string]string)
 
 	for _, cookie := range r.Cookies() {
@@ -163,35 +177,74 @@ func (p *RequestService) ParseHTTPRequest(ctx context.Context, r *http.Request) 
 	return
 }
 
-func (p *RequestService) SendHTTPRequest(ctx context.Context, hr *domain.HTTPRequest) (resp *http.Response, err error) {
-	client := &http.Client{}
-	req, err := http.NewRequest(hr.Method, "", bytes.NewReader(hr.Body))
+func (r *RequestService) SendHTTPRequest(ctx context.Context, req *domain.HTTPRequest) (res *domain.HTTPResponse, err error) {
+	var tlsCfg *tls.Config
+
+	if req.Scheme == "https" {
+		tlsCfg, _, err = r.GetTLSConfig(ctx, req)
+	}
+
+	tr := &http.Transport{
+		MaxIdleConns:    10,
+		IdleConnTimeout: 30 * time.Second,
+		TLSClientConfig: tlsCfg,
+	}
+	client := &http.Client{Transport: tr}
+
+	var bodyReader io.Reader
+
+	if len(req.PostParams) > 0 {
+		form := url.Values{}
+
+		for key, values := range req.PostParams {
+			for _, value := range values {
+				form.Add(key, value)
+			}
+		}
+
+		bodyReader = strings.NewReader(form.Encode())
+	} else {
+		bodyReader = bytes.NewReader(req.Body)
+	}
+
+	httpReq, err := http.NewRequest(req.Method, req.Scheme+"://"+req.GetFullHost()+req.Path, bodyReader)
 	if err != nil {
-		err = fmt.Errorf("Error creating request: %v\n", err)
 		return
 	}
 
-	req.URL.Host = hr.GetFullHost()
-	req.URL.Path = hr.Path
-	req.URL.Scheme = hr.Scheme
-
-	req.Proto = hr.Proto
-
-	for key, values := range hr.Headers {
+	for key, values := range req.Headers {
 		for _, value := range values {
-			req.Header.Add(key, value)
+			httpReq.Header.Add(key, value)
 		}
 	}
 
-	resp, err = client.Do(req)
+	for key, values := range req.GetParams {
+		for _, value := range values {
+			httpReq.URL.Query().Add(key, value)
+		}
+	}
+
+	for _, value := range req.Cookies {
+		cookie, err := r.parseCookie(value)
+		if err != nil {
+			return nil, err
+		}
+
+		httpReq.AddCookie(cookie)
+	}
+
+	httpResp, err := client.Do(httpReq)
 	if err != nil {
-		err = fmt.Errorf("Error sending request: %v\n", err)
 		return
 	}
 
-	_, err = p.SaveRequest(ctx, hr)
+	res, err = r.ParseHTTPResponse(ctx, httpResp)
 	if err != nil {
-		log.Println("error saving request: ", err)
+		return
+	}
+
+	res, err = r.SaveHTTPResponse(ctx, res, req)
+	if err != nil {
 		return
 	}
 
@@ -254,19 +307,31 @@ func (p *RequestService) GetRequestsList(ctx context.Context) (reqs []*domain.HT
 }
 
 func (r *RequestService) ParseHTTPResponse(ctx context.Context, resp *http.Response) (*domain.HTTPResponse, error) {
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
+	var bodyReader io.ReadCloser
+	var err error
+
+	// Check if the response body is gzip-encoded
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		bodyReader, err = gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		bodyReader = resp.Body
+	}
+
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer bodyReader.Close()
 
 	// Create the HTTPResponse struct
 	httpResponse := &domain.HTTPResponse{
 		Code:    resp.StatusCode,
 		Message: resp.Status,
 		Headers: make(map[string][]string),
-		Body:    body,
+		Body:    string(body),
 	}
 
 	// Copy headers
@@ -303,62 +368,7 @@ func (r *RequestService) RepeatRequestByID(ctx context.Context, reqID string) (r
 		return
 	}
 
-	var tlsCfg *tls.Config
-
-	if req.Scheme == "https" {
-		tlsCfg, _, err = r.GetTLSConfig(ctx, req)
-	}
-
-	tr := &http.Transport{
-		MaxIdleConns:    10,
-		IdleConnTimeout: 30 * time.Second,
-		TLSClientConfig: tlsCfg,
-	}
-	client := &http.Client{Transport: tr}
-
-	httpReq, err := http.NewRequest(req.Method, req.Scheme+"://"+req.GetFullHost()+req.Path, bytes.NewReader(req.Body))
-	if err != nil {
-		return
-	}
-
-	for key, values := range req.Headers {
-		for _, value := range values {
-			httpReq.Header.Add(key, value)
-		}
-	}
-
-	for key, values := range req.GetParams {
-		for _, value := range values {
-			httpReq.URL.Query().Add(key, value)
-		}
-	}
-
-	for key, values := range req.PostParams {
-		for _, value := range values {
-			httpReq.PostForm.Add(key, value)
-		}
-	}
-
-	for _, value := range req.Cookies {
-		cookie, err := r.parseCookie(value)
-		if err != nil {
-			return nil, err
-		}
-
-		httpReq.AddCookie(cookie)
-	}
-
-	httpResp, err := client.Do(httpReq)
-	if err != nil {
-		return
-	}
-
-	res, err = r.ParseHTTPResponse(ctx, httpResp)
-	if err != nil {
-		return
-	}
-
-	res, err = r.SaveHTTPResponse(ctx, res, req)
+	res, err = r.SendHTTPRequest(ctx, req)
 	if err != nil {
 		return
 	}
@@ -367,7 +377,7 @@ func (r *RequestService) RepeatRequestByID(ctx context.Context, reqID string) (r
 }
 
 func (r *RequestService) isCommandInjectionVulnerable(resp *domain.HTTPResponse) bool {
-	return bytes.Contains(resp.Body, []byte(commandInjectionCheckString))
+	return strings.Contains(resp.Body, commandInjectionCheckString)
 }
 
 // ScanRequestWithCommandInjection scans request with ID=reqID, sequentially pasting Command Injection
@@ -379,7 +389,8 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 		return
 	}
 
-	unsafeReq = req
+	unsafeReq = new(domain.HTTPRequest)
+	*unsafeReq = *req
 	unsafeReq.Headers = make(map[string][]string)
 	unsafeReq.Cookies = make(map[string]string)
 	unsafeReq.GetParams = make(map[string][]string)
@@ -389,21 +400,14 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 		originalValues := header
 
 		for _, scan := range commandInjectionScans {
-			var res *http.Response
+			var res *domain.HTTPResponse
 			req.Headers[key] = []string{scan}
 			res, err = r.SendHTTPRequest(ctx, req)
 			if err != nil {
 				return
 			}
 
-			var parsedRes *domain.HTTPResponse
-
-			parsedRes, err = r.ParseHTTPResponse(ctx, res)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(parsedRes) {
+			if r.isCommandInjectionVulnerable(res) {
 				unsafeReq.Headers[key] = append(unsafeReq.Headers[key], scan)
 			}
 		}
@@ -415,21 +419,14 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 		originalValue := cookie
 
 		for _, scan := range commandInjectionScans {
-			var res *http.Response
-			req.Cookies[key] = scan
+			var res *domain.HTTPResponse
+			req.Cookies[key] = fmt.Sprintf("%s=%s", key, scan)
 			res, err = r.SendHTTPRequest(ctx, req)
 			if err != nil {
 				return
 			}
 
-			var parsedRes *domain.HTTPResponse
-
-			parsedRes, err = r.ParseHTTPResponse(ctx, res)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(parsedRes) {
+			if r.isCommandInjectionVulnerable(res) {
 				unsafeReq.Cookies[key] = scan
 			}
 		}
@@ -441,21 +438,15 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 		originalValues := getParam
 
 		for _, scan := range commandInjectionScans {
-			var res *http.Response
+			var res *domain.HTTPResponse
+
 			req.GetParams[key] = []string{scan}
 			res, err = r.SendHTTPRequest(ctx, req)
 			if err != nil {
 				return
 			}
 
-			var parsedRes *domain.HTTPResponse
-
-			parsedRes, err = r.ParseHTTPResponse(ctx, res)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(parsedRes) {
+			if r.isCommandInjectionVulnerable(res) {
 				unsafeReq.GetParams[key] = append(unsafeReq.GetParams[key], scan)
 			}
 		}
@@ -467,21 +458,14 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 		originalValues := postParam
 
 		for _, scan := range commandInjectionScans {
-			var res *http.Response
+			var res *domain.HTTPResponse
 			req.PostParams[key] = []string{scan}
 			res, err = r.SendHTTPRequest(ctx, req)
 			if err != nil {
 				return
 			}
 
-			var parsedRes *domain.HTTPResponse
-
-			parsedRes, err = r.ParseHTTPResponse(ctx, res)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(parsedRes) {
+			if r.isCommandInjectionVulnerable(res) {
 				unsafeReq.PostParams[key] = append(unsafeReq.PostParams[key], scan)
 			}
 		}

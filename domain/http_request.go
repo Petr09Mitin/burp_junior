@@ -25,5 +25,5 @@ type HTTPResponse struct {
 	Code      int                 `bson:"code,omitempty"`
 	Message   string              `bson:"message,omitempty"`
 	Headers   map[string][]string `bson:"headers,omitempty"`
-	Body      []byte              `bson:"body,omitempty"`
+	Body      string              `bson:"body,omitempty"`
 }

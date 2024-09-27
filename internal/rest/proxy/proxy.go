@@ -1,6 +1,7 @@
 package rest_proxy
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -8,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/burp_junior/customerrors"
@@ -19,10 +21,16 @@ var okHeader = []byte("HTTP/1.1 200 Connection Established\r\n\r\n")
 
 type RequestService interface {
 	ParseHTTPRequest(ctx context.Context, r *http.Request) (pr *domain.HTTPRequest, err error)
-	SendHTTPRequest(ctx context.Context, pr *domain.HTTPRequest) (resp *http.Response, err error)
+	SendHTTPRequest(ctx context.Context, pr *domain.HTTPRequest) (resp *domain.HTTPResponse, err error)
 	GetTLSConfig(ctx context.Context, pr *domain.HTTPRequest) (cfg *tls.Config, sconn *tls.Conn, err error)
 	ParseHTTPResponse(ctx context.Context, resp *http.Response) (*domain.HTTPResponse, error)
+	SaveRequest(ctx context.Context, r *domain.HTTPRequest) (newReq *domain.HTTPRequest, err error)
 	SaveHTTPResponse(ctx context.Context, resp *domain.HTTPResponse, req *domain.HTTPRequest) (savedResp *domain.HTTPResponse, err error)
+}
+
+type SafeBuffer struct {
+	buf []byte
+	mu  sync.Mutex
 }
 
 type ProxyHandler struct {
@@ -36,13 +44,6 @@ func NewProxyHandler(requestService RequestService) *ProxyHandler {
 }
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseForm()
-	if err != nil {
-		log.Println("err parsing form data: ", err)
-		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrParsingFormData)
-		return
-	}
-
 	pr, err := h.requestService.ParseHTTPRequest(r.Context(), r)
 	if err != nil {
 		log.Println(err)
@@ -60,25 +61,10 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.requestService.SendHTTPRequest(r.Context(), pr)
+	savedResp, err := h.requestService.SendHTTPRequest(r.Context(), pr)
 	if err != nil {
 		log.Println(err)
 		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrSendingRequest)
-		return
-	}
-	defer resp.Body.Close()
-
-	parsedResp, err := h.requestService.ParseHTTPResponse(r.Context(), resp)
-	if err != nil {
-		log.Println(err)
-		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrParsingResponse)
-		return
-	}
-
-	savedResp, err := h.requestService.SaveHTTPResponse(r.Context(), parsedResp, pr)
-	if err != nil {
-		log.Println(err)
-		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrSavingResponse)
 		return
 	}
 
@@ -104,7 +90,7 @@ func (h *ProxyHandler) ServeHTTPResponse(w http.ResponseWriter, httpResponse *do
 	}
 
 	// Write body
-	_, err = io.Copy(w, bytes.NewReader(httpResponse.Body))
+	_, err = io.Copy(w, strings.NewReader(httpResponse.Body))
 	if err != nil {
 		return
 	}
@@ -137,31 +123,87 @@ func (h *ProxyHandler) serveConnect(w http.ResponseWriter, r *http.Request, pr *
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 
-	go transfer(sconn, cconn, wg)
-	go transfer(cconn, sconn, wg)
+	reqBuf := &SafeBuffer{
+		buf: make([]byte, 0, 100*1024),
+		mu:  sync.Mutex{},
+	}
+	resBuf := &SafeBuffer{
+		buf: make([]byte, 0, 100*1024),
+		mu:  sync.Mutex{},
+	}
+
+	go transfer(sconn, cconn, wg, resBuf)
+	go transfer(cconn, sconn, wg, reqBuf)
 
 	wg.Wait()
+
+	reqBuf.mu.Lock()
+	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(reqBuf.buf)))
+	reqBuf.mu.Unlock()
+	if err != nil {
+		err = customerrors.ErrParsingRequest
+		return
+	}
+
+	parsedRequest, err := h.requestService.ParseHTTPRequest(r.Context(), req)
+	if err != nil {
+		return
+	}
+
+	parsedRequest.Scheme = "https"
+	parsedRequest.Port = "443"
+
+	parsedRequest, err = h.requestService.SaveRequest(r.Context(), parsedRequest)
+	if err != nil {
+		return
+	}
+
+	resBuf.mu.Lock()
+	res, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(resBuf.buf)), req)
+	resBuf.mu.Unlock()
+	if err != nil {
+		err = customerrors.ErrParsingResponse
+		return
+	}
+
+	parsedResponse, err := h.requestService.ParseHTTPResponse(r.Context(), res)
+	if err != nil {
+		return
+	}
+
+	_, err = h.requestService.SaveHTTPResponse(r.Context(), parsedResponse, parsedRequest)
+	if err != nil {
+		return
+	}
 
 	return
 }
 
-func transfer(reader io.Reader, writer io.Writer, wg *sync.WaitGroup) {
+func transfer(reader io.Reader, writer io.Writer, wg *sync.WaitGroup, transfered *SafeBuffer) {
 	defer wg.Done()
-	buf := make([]byte, 100*1024)
+	buf := make([]byte, 10*1024)
+
 	for {
 		n, err := reader.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				log.Println("Error reading from connection:", err)
-			}
+		if err != nil && err != io.EOF {
+			log.Println("Error reading from connection:", err)
 			return
 		}
+
+		err = nil
+
 		if n > 0 {
+			transfered.mu.Lock()
+			transfered.buf = append(transfered.buf, buf[:n]...)
+			transfered.mu.Unlock()
+
 			_, err = writer.Write(buf[:n])
 			if err != nil {
 				log.Println("Error writing to connection:", err)
 				return
 			}
+		} else {
+			return
 		}
 	}
 }

@@ -67,6 +67,7 @@ func (h *APIHandler) RepeatRequestHandler(w http.ResponseWriter, r *http.Request
 
 	res, err := h.rs.RepeatRequestByID(r.Context(), reqID)
 	if err != nil {
+		log.Println(err)
 		jsonutils.ServeJSONError(r.Context(), w, err)
 		return
 	}
@@ -85,6 +86,7 @@ func (h *APIHandler) ScanRequestHandler(w http.ResponseWriter, r *http.Request) 
 
 	unsafeReq, err := h.rs.ScanRequestWithCommandInjection(r.Context(), reqID)
 	if err != nil {
+		log.Println(err)
 		jsonutils.ServeJSONError(r.Context(), w, err)
 		return
 	}
