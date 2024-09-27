@@ -19,6 +19,7 @@ type RequestService interface {
 	GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error)
 	GetRequestByID(ctx context.Context, reqID string) (req *domain.HTTPRequest, err error)
 	RepeatRequestByID(ctx context.Context, reqID string) (res *domain.HTTPResponse, err error)
+	ScanRequestWithCommandInjection(ctx context.Context, reqID string) (unsafeReq *domain.HTTPRequest, err error)
 }
 
 func NewAPIHandler(rs RequestService) *APIHandler {
@@ -70,12 +71,25 @@ func (h *APIHandler) RepeatRequestHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	jsonutils.ServeJSONBody(r.Context(), w, res, http.StatusOK)
+	jsonutils.ServeJSONBody(r.Context(), w, res, http.StatusCreated)
 
 	return
 }
 
 func (h *APIHandler) ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+	reqID, ok := mux.Vars(r)["id"]
+	if !ok {
+		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrInvalidRequest)
+		return
+	}
+
+	unsafeReq, err := h.rs.ScanRequestWithCommandInjection(r.Context(), reqID)
+	if err != nil {
+		jsonutils.ServeJSONError(r.Context(), w, err)
+		return
+	}
+
+	jsonutils.ServeJSONBody(r.Context(), w, unsafeReq, http.StatusCreated)
+
 	return
 }

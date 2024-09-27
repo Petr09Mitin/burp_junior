@@ -54,7 +54,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.serveConnect(w, r, pr)
 		if err != nil {
 			log.Println("connect err:", err)
-			jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrServingConnect)
 			return
 		}
 

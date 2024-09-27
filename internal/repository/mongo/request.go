@@ -3,6 +3,7 @@ package mongo_repo
 import (
 	"context"
 
+	"github.com/burp_junior/customerrors"
 	"github.com/burp_junior/domain"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,6 +22,7 @@ func NewRequestsRepo(col *mongo.Collection) (r *Requests) {
 func (r *Requests) SaveRequest(ctx context.Context, req *domain.HTTPRequest) (savedReq *domain.HTTPRequest, err error) {
 	result, err := r.Col.InsertOne(context.Background(), req)
 	if err != nil {
+		err = customerrors.ErrInternal
 		return
 	}
 
@@ -35,6 +37,7 @@ func (r *Requests) GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequ
 
 	cursor, err := r.Col.Find(context.Background(), primitive.M{})
 	if err != nil {
+		err = customerrors.ErrInternal
 		return
 	}
 
@@ -42,6 +45,7 @@ func (r *Requests) GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequ
 		var req domain.HTTPRequest
 		err = cursor.Decode(&req)
 		if err != nil {
+			err = customerrors.ErrInternal
 			return
 		}
 
@@ -54,11 +58,13 @@ func (r *Requests) GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequ
 func (r *Requests) GetRequestByID(ctx context.Context, id string) (req *domain.HTTPRequest, err error) {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
+		err = customerrors.ErrInvalidRequestID
 		return
 	}
 
 	err = r.Col.FindOne(context.Background(), primitive.M{"_id": objID}).Decode(&req)
 	if err != nil {
+		err = customerrors.ErrNotFound
 		return
 	}
 

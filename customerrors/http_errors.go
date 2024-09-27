@@ -5,16 +5,18 @@ import (
 )
 
 var HTTPErrors = map[error]int{
-	ErrInternal:        500,
-	ErrJSONMarshalling: 500,
-	ErrParsingFormData: 400,
-	ErrParsingRequest:  400,
-	ErrServingConnect:  500,
-	ErrSendingRequest:  500,
-	ErrParsingResponse: 500,
-	ErrServingResponse: 500,
-	ErrSavingResponse:  500,
-	ErrInvalidRequest:  400,
+	ErrInternal:         500,
+	ErrJSONMarshalling:  500,
+	ErrParsingFormData:  400,
+	ErrParsingRequest:   400,
+	ErrServingConnect:   500,
+	ErrSendingRequest:   500,
+	ErrParsingResponse:  500,
+	ErrServingResponse:  500,
+	ErrSavingResponse:   500,
+	ErrInvalidRequest:   400,
+	ErrInvalidRequestID: 400,
+	ErrNotFound:         404,
 }
 
 func ParseHTTPError(err error) (msg string, status int) {

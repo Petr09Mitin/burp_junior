@@ -16,6 +16,15 @@ import (
 	"github.com/burp_junior/pkg/certs"
 )
 
+var (
+	commandInjectionScans = []string{
+		";cat /etc/passwd;",
+		"|cat /etc/passwd|",
+		"`cat /etc/passwd`",
+	}
+	commandInjectionCheckString = "root:"
+)
+
 type RequestService struct {
 	ca   *tls.Certificate
 	reqS RequestsStorage
@@ -39,7 +48,6 @@ func NewRequestService(reqS RequestsStorage, resS ResponseStorage) (p *RequestSe
 	}
 	p.ca, err = certs.GetCA("ca.crt", "ca.key")
 	if err != nil {
-		log.Println(err)
 		return
 	}
 
@@ -353,6 +361,132 @@ func (r *RequestService) RepeatRequestByID(ctx context.Context, reqID string) (r
 	res, err = r.SaveHTTPResponse(ctx, res, req)
 	if err != nil {
 		return
+	}
+
+	return
+}
+
+func (r *RequestService) isCommandInjectionVulnerable(resp *domain.HTTPResponse) bool {
+	return bytes.Contains(resp.Body, []byte(commandInjectionCheckString))
+}
+
+// ScanRequestWithCommandInjection scans request with ID=reqID, sequentially pasting Command Injection
+// variations into every Header, Cookie, Get param and FormData field.
+// It returns unsafeReq of type *domain.HTTPRequest, fields of which contain only values that are penetrated by injection.
+func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, reqID string) (unsafeReq *domain.HTTPRequest, err error) {
+	req, err := r.reqS.GetRequestByID(ctx, reqID)
+	if err != nil {
+		return
+	}
+
+	unsafeReq = req
+	unsafeReq.Headers = make(map[string][]string)
+	unsafeReq.Cookies = make(map[string]string)
+	unsafeReq.GetParams = make(map[string][]string)
+	unsafeReq.PostParams = make(map[string][]string)
+
+	for key, header := range req.Headers {
+		originalValues := header
+
+		for _, scan := range commandInjectionScans {
+			var res *http.Response
+			req.Headers[key] = []string{scan}
+			res, err = r.SendHTTPRequest(ctx, req)
+			if err != nil {
+				return
+			}
+
+			var parsedRes *domain.HTTPResponse
+
+			parsedRes, err = r.ParseHTTPResponse(ctx, res)
+			if err != nil {
+				return
+			}
+
+			if r.isCommandInjectionVulnerable(parsedRes) {
+				unsafeReq.Headers[key] = append(unsafeReq.Headers[key], scan)
+			}
+		}
+
+		req.Headers[key] = originalValues
+	}
+
+	for key, cookie := range req.Cookies {
+		originalValue := cookie
+
+		for _, scan := range commandInjectionScans {
+			var res *http.Response
+			req.Cookies[key] = scan
+			res, err = r.SendHTTPRequest(ctx, req)
+			if err != nil {
+				return
+			}
+
+			var parsedRes *domain.HTTPResponse
+
+			parsedRes, err = r.ParseHTTPResponse(ctx, res)
+			if err != nil {
+				return
+			}
+
+			if r.isCommandInjectionVulnerable(parsedRes) {
+				unsafeReq.Cookies[key] = scan
+			}
+		}
+
+		req.Cookies[key] = originalValue
+	}
+
+	for key, getParam := range req.GetParams {
+		originalValues := getParam
+
+		for _, scan := range commandInjectionScans {
+			var res *http.Response
+			req.GetParams[key] = []string{scan}
+			res, err = r.SendHTTPRequest(ctx, req)
+			if err != nil {
+				return
+			}
+
+			var parsedRes *domain.HTTPResponse
+
+			parsedRes, err = r.ParseHTTPResponse(ctx, res)
+			if err != nil {
+				return
+			}
+
+			if r.isCommandInjectionVulnerable(parsedRes) {
+				unsafeReq.GetParams[key] = append(unsafeReq.GetParams[key], scan)
+			}
+		}
+
+		req.GetParams[key] = originalValues
+	}
+
+	for key, postParam := range req.PostParams {
+		originalValues := postParam
+
+		for _, scan := range commandInjectionScans {
+			var res *http.Response
+			req.PostParams[key] = []string{scan}
+			res, err = r.SendHTTPRequest(ctx, req)
+			if err != nil {
+				return
+			}
+
+			var parsedRes *domain.HTTPResponse
+
+			parsedRes, err = r.ParseHTTPResponse(ctx, res)
+			if err != nil {
+				return
+			}
+
+			if r.isCommandInjectionVulnerable(parsedRes) {
+				unsafeReq.PostParams[key] = append(unsafeReq.PostParams[key], scan)
+			}
+		}
+
+		req.PostParams[key] = originalValues
 	}
 
 	return
