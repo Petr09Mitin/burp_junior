@@ -9,9 +9,10 @@
   <li>Сгенерировать корневой TLS-сертификат (CA), выполнив в консоли скрипт ./utils/gen_ca.sh</li>
   <li>Добавить его в доверенные сертификаты ОС</li>
   <li>Запустить команду docker-compose up --build (либо make run)</li>
+  <li>Proxy ранится на порту 8080, web API - на 8000</li>
 </ol>
 
-<h3>API</h3>
+<h3>API (:8000)</h3>
 <ol>
   <li>/requests – список запросов</li>
   <li>/requests/{id} – вывод 1 запроса</li>
