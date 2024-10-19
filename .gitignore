@@ -3,3 +3,4 @@ main.exe
 *.crt
 *.key
 .env
+log*.txt

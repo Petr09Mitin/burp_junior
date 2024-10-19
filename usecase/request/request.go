@@ -7,12 +7,12 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/burp_junior/domain"
@@ -34,6 +34,11 @@ type RequestService struct {
 	resS ResponseStorage
 }
 
+type SafeInjections struct {
+	mu *sync.RWMutex
+	ci []string
+}
+
 type RequestsStorage interface {
 	SaveRequest(ctx context.Context, r *domain.HTTPRequest) (insertedReq *domain.HTTPRequest, err error)
 	GetRequestsList(ctx context.Context) (reqs []*domain.HTTPRequest, err error)
@@ -49,6 +54,7 @@ func NewRequestService(reqS RequestsStorage, resS ResponseStorage) (p *RequestSe
 		reqS: reqS,
 		resS: resS,
 	}
+
 	p.ca, err = certs.GetCA("ca.crt", "ca.key")
 	if err != nil {
 		return
@@ -380,6 +386,28 @@ func (r *RequestService) isCommandInjectionVulnerable(resp *domain.HTTPResponse)
 	return strings.Contains(resp.Body, commandInjectionCheckString)
 }
 
+func (r *RequestService) initUnsafeRequest(req *domain.HTTPRequest) (result *domain.HTTPRequest) {
+	result = new(domain.HTTPRequest)
+	*result = *req
+	return
+}
+
+func copySyncMapIntoStringArrMap(sm *sync.Map, rm *map[string][]string) {
+	rm = new(map[string][]string)
+	sm.Range(func(key any, value any) bool {
+		(*rm)[key.(string)] = value.([]string)
+		return true
+	})
+}
+
+func copySyncMapIntoStringMap(sm *sync.Map, rm *map[string]string) {
+	rm = new(map[string]string)
+	sm.Range(func(key any, value any) bool {
+		(*rm)[key.(string)] = value.(string)
+		return true
+	})
+}
+
 // ScanRequestWithCommandInjection scans request with ID=reqID, sequentially pasting Command Injection
 // variations into every Header, Cookie, Get param and FormData field.
 // It returns unsafeReq of type *domain.HTTPRequest, fields of which contain only values that are penetrated by injection.
@@ -389,89 +417,30 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 		return
 	}
 
-	unsafeReq = new(domain.HTTPRequest)
-	*unsafeReq = *req
-	unsafeReq.Headers = make(map[string][]string)
-	unsafeReq.Cookies = make(map[string]string)
-	unsafeReq.GetParams = make(map[string][]string)
-	unsafeReq.PostParams = make(map[string][]string)
-
-	for key, header := range req.Headers {
-		originalValues := header
-
-		for _, scan := range commandInjectionScans {
-			var res *domain.HTTPResponse
-			req.Headers[key] = []string{scan}
-			res, err = r.SendHTTPRequest(ctx, req)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(res) {
-				unsafeReq.Headers[key] = append(unsafeReq.Headers[key], scan)
-			}
-		}
-
-		req.Headers[key] = originalValues
+	unsafeR := *req
+	ci := SafeInjections{
+		mu: &sync.RWMutex{},
+		ci: commandInjectionScans,
 	}
 
-	for key, cookie := range req.Cookies {
-		originalValue := cookie
+	headers := &sync.Map{}
+	cookies := &sync.Map{}
+	getParams := &sync.Map{}
+	postParams := &sync.Map{}
 
-		for _, scan := range commandInjectionScans {
-			var res *domain.HTTPResponse
-			req.Cookies[key] = fmt.Sprintf("%s=%s", key, scan)
-			res, err = r.SendHTTPRequest(ctx, req)
-			if err != nil {
-				return
-			}
+	safeR := domain.MakeSafeHTTPRequest(&unsafeR)
 
-			if r.isCommandInjectionVulnerable(res) {
-				unsafeReq.Cookies[key] = scan
-			}
-		}
+	globalWg := &sync.WaitGroup{}
+	globalWg.Add(4)
 
-		req.Cookies[key] = originalValue
-	}
+	go r.scanHeadersWorker(ctx, globalWg, safeR, ci, headers)
+	go r.scanCookiesWorker(ctx, globalWg, safeR, ci, cookies)
+	go r.scanGetParamsWorker(ctx, globalWg, safeR, ci, getParams)
+	go r.scanPostParamsWorker(ctx, globalWg, safeR, ci, postParams)
 
-	for key, getParam := range req.GetParams {
-		originalValues := getParam
+	globalWg.Wait()
 
-		for _, scan := range commandInjectionScans {
-			var res *domain.HTTPResponse
-
-			req.GetParams[key] = []string{scan}
-			res, err = r.SendHTTPRequest(ctx, req)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(res) {
-				unsafeReq.GetParams[key] = append(unsafeReq.GetParams[key], scan)
-			}
-		}
-
-		req.GetParams[key] = originalValues
-	}
-
-	for key, postParam := range req.PostParams {
-		originalValues := postParam
-
-		for _, scan := range commandInjectionScans {
-			var res *domain.HTTPResponse
-			req.PostParams[key] = []string{scan}
-			res, err = r.SendHTTPRequest(ctx, req)
-			if err != nil {
-				return
-			}
-
-			if r.isCommandInjectionVulnerable(res) {
-				unsafeReq.PostParams[key] = append(unsafeReq.PostParams[key], scan)
-			}
-		}
-
-		req.PostParams[key] = originalValues
-	}
+	unsafeReq = &unsafeR
 
 	return
 }
