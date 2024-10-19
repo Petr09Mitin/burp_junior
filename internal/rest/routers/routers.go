@@ -19,8 +19,6 @@ func MountProxyRouter(rs rest_proxy.RequestService) {
 		log.Println("Proxy failed to listen: ", err)
 		return
 	}
-
-	return
 }
 
 func MountAPIRouter(rs rest_api.RequestService) {
@@ -41,6 +39,4 @@ func MountAPIRouter(rs rest_api.RequestService) {
 		log.Println("WebAPI failed to listen: ", err)
 		return
 	}
-
-	return
 }

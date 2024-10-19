@@ -36,8 +36,6 @@ func (h *APIHandler) GetRequestsListHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	jsonutils.ServeJSONBody(r.Context(), w, rl, http.StatusOK)
-
-	return
 }
 
 func (h *APIHandler) GetRequestByIDHandler(w http.ResponseWriter, r *http.Request) {
@@ -54,8 +52,6 @@ func (h *APIHandler) GetRequestByIDHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	jsonutils.ServeJSONBody(r.Context(), w, req, http.StatusOK)
-
-	return
 }
 
 func (h *APIHandler) RepeatRequestHandler(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +69,6 @@ func (h *APIHandler) RepeatRequestHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	jsonutils.ServeJSONBody(r.Context(), w, res, http.StatusCreated)
-
-	return
 }
 
 func (h *APIHandler) ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +86,4 @@ func (h *APIHandler) ScanRequestHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	jsonutils.ServeJSONBody(r.Context(), w, unsafeReq, http.StatusCreated)
-
-	return
 }

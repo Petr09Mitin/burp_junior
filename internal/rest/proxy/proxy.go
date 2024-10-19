@@ -74,8 +74,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonutils.ServeJSONError(r.Context(), w, customerrors.ErrServingResponse)
 		return
 	}
-
-	return
 }
 
 func (h *ProxyHandler) ServeHTTPResponse(w http.ResponseWriter, httpResponse *domain.HTTPResponse) (err error) {

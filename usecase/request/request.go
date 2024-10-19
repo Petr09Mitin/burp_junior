@@ -188,6 +188,9 @@ func (r *RequestService) SendHTTPRequest(ctx context.Context, req *domain.HTTPRe
 
 	if req.Scheme == "https" {
 		tlsCfg, _, err = r.GetTLSConfig(ctx, req)
+		if err != nil {
+			return
+		}
 	}
 
 	tr := &http.Transport{
@@ -224,11 +227,13 @@ func (r *RequestService) SendHTTPRequest(ctx context.Context, req *domain.HTTPRe
 		}
 	}
 
+	q := httpReq.URL.Query()
 	for key, values := range req.GetParams {
 		for _, value := range values {
-			httpReq.URL.Query().Add(key, value)
+			q.Add(key, value)
 		}
 	}
+	httpReq.URL.RawQuery = q.Encode()
 
 	for _, value := range req.Cookies {
 		cookie, err := r.parseCookie(value)
@@ -384,12 +389,6 @@ func (r *RequestService) RepeatRequestByID(ctx context.Context, reqID string) (r
 
 func (r *RequestService) isCommandInjectionVulnerable(resp *domain.HTTPResponse) bool {
 	return strings.Contains(resp.Body, commandInjectionCheckString)
-}
-
-func (r *RequestService) initUnsafeRequest(req *domain.HTTPRequest) (result *domain.HTTPRequest) {
-	result = new(domain.HTTPRequest)
-	*result = *req
-	return
 }
 
 func copySyncMapIntoStringArrMap(sm *sync.Map) (rm map[string][]string) {
