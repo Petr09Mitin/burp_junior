@@ -392,20 +392,24 @@ func (r *RequestService) initUnsafeRequest(req *domain.HTTPRequest) (result *dom
 	return
 }
 
-func copySyncMapIntoStringArrMap(sm *sync.Map, rm *map[string][]string) {
-	rm = new(map[string][]string)
+func copySyncMapIntoStringArrMap(sm *sync.Map) (rm map[string][]string) {
+	rm = make(map[string][]string, 0)
 	sm.Range(func(key any, value any) bool {
-		(*rm)[key.(string)] = value.([]string)
+		rm[key.(string)] = value.([]string)
 		return true
 	})
+
+	return
 }
 
-func copySyncMapIntoStringMap(sm *sync.Map, rm *map[string]string) {
-	rm = new(map[string]string)
+func copySyncMapIntoStringMap(sm *sync.Map) (rm map[string]string) {
+	rm = make(map[string]string, 0)
 	sm.Range(func(key any, value any) bool {
-		(*rm)[key.(string)] = value.(string)
+		rm[key.(string)] = value.(string)
 		return true
 	})
+
+	return
 }
 
 // ScanRequestWithCommandInjection scans request with ID=reqID, sequentially pasting Command Injection
@@ -441,6 +445,11 @@ func (r *RequestService) ScanRequestWithCommandInjection(ctx context.Context, re
 	globalWg.Wait()
 
 	unsafeReq = &unsafeR
+
+	unsafeReq.Headers = copySyncMapIntoStringArrMap(headers)
+	unsafeReq.GetParams = copySyncMapIntoStringArrMap(getParams)
+	unsafeReq.PostParams = copySyncMapIntoStringArrMap(postParams)
+	unsafeReq.Cookies = copySyncMapIntoStringMap(cookies)
 
 	return
 }
